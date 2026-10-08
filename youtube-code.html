@@ -1,0 +1,176 @@
+<!doctype html>
+<!--
+  Страница с кодом для подключения YouTube к боту Shorts Factory (bot/handlers_youtube.py, youtube/oauth.py).
+  Лежит в корне сайта https://wartherio.github.io (репозиторий сайта, рядом с privacy.html) — её адрес записан
+  в OAuth-клиенте «Web application» как Authorized redirect URI и в .env бота как YOUTUBE_REDIRECT_URI.
+  Google после входа открывает её с ?state=…&code=… (или ?error=access_denied). Страница только показывает код:
+  никуда его не отправляет, ничего не подгружает со сторонних сайтов и сразу убирает код из адресной строки.
+  Код без проверочной строки бота (PKCE) бесполезен, поэтому показывать его на экране безопасно.
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Код для бота — Shorts Factory</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --text: #1b1f24;
+    --muted: #5b6470;
+    --accent: #2563eb;
+    --accent-text: #ffffff;
+    --ok: #15803d;
+    --warn: #b45309;
+    --border: #d8dde3;
+    --code-bg: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418;
+      --card: #1a1f25;
+      --text: #e8ebef;
+      --muted: #9aa4b0;
+      --accent: #3b82f6;
+      --accent-text: #ffffff;
+      --ok: #4ade80;
+      --warn: #fbbf24;
+      --border: #2c333b;
+      --code-bg: #232a32;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  main {
+    max-width: 560px;
+    margin: 0 auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px 20px;
+  }
+  h1 { font-size: 22px; margin: 0 0 12px; }
+  p { margin: 10px 0; }
+  .muted { color: var(--muted); font-size: 15px; }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  #answer {
+    display: block;
+    width: 100%;
+    min-height: 96px;
+    margin: 14px 0 12px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--code-bg);
+    color: var(--text);
+    font: 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-all;
+    resize: none;
+  }
+  button {
+    width: 100%;
+    padding: 14px 16px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:active { opacity: 0.85; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <section id="code-view" hidden>
+    <h1 class="ok">✅ Доступ выдан</h1>
+    <p>Это код для бота. Нажми «Скопировать», вернись в Telegram и пришли код боту <b>одним сообщением</b>.</p>
+    <textarea id="answer" readonly rows="4" aria-label="Код для бота"></textarea>
+    <button id="copy" type="button">📋 Скопировать</button>
+    <p id="copied" class="ok" hidden>Скопировано — теперь вставь в чат с ботом.</p>
+    <p class="muted">Код действует несколько минут и только один раз. Не успел — открой ссылку из бота ещё раз.
+      Канал подключал не ты? Перешли код тому, кто прислал ссылку.</p>
+  </section>
+
+  <section id="denied-view" hidden>
+    <h1 class="warn">Доступ не выдан</h1>
+    <p>В Google нажали «Отмена». Чтобы подключить канал, открой ссылку из бота ещё раз и на экране разрешений отметь
+      все галочки → «Продолжить».</p>
+  </section>
+
+  <section id="error-view" hidden>
+    <h1 class="warn">Google вернул ошибку</h1>
+    <p>Ошибка: <b id="error-name"></b>. Открой ссылку из бота ещё раз. Повторится — перешли это название ошибки
+      боту или Claude.</p>
+  </section>
+
+  <section id="empty-view" hidden>
+    <h1>Код для бота Shorts Factory</h1>
+    <p>Эта страница показывает код для подключения канала YouTube к боту. Открывать её нужно по ссылке из бота:
+      «📺 Каналы» → «⚙️ Настройки канала» → «🔗 Подключить YouTube».</p>
+    <p class="muted">Если ты уже вошёл в Google и видишь это сообщение, код пропал из адреса страницы — открой ссылку
+      из бота ещё раз.</p>
+  </section>
+</main>
+<script>
+  (function () {
+    "use strict";
+    // Параметры — из ?query (так отвечает Google) или из #fragment (на всякий случай).
+    var params = new URLSearchParams(window.location.search);
+    if (!params.get("code") && !params.get("error") && window.location.hash.length > 1) {
+      params = new URLSearchParams(window.location.hash.slice(1));
+    }
+    var code = params.get("code") || "";
+    var state = params.get("state") || "";
+    var error = params.get("error") || "";
+
+    // Код больше не нужен в адресной строке и истории браузера.
+    if (code || error) {
+      try { window.history.replaceState(null, "", window.location.pathname); } catch (e) { /* не страшно */ }
+    }
+
+    function show(id) { document.getElementById(id).hidden = false; }
+
+    if (code) {
+      // Боту — код и state ссылки через пробел: по state бот найдёт своё подключение.
+      var answer = state ? code + " " + state : code;
+      var box = document.getElementById("answer");
+      box.value = answer;
+      show("code-view");
+      document.getElementById("copy").addEventListener("click", function () {
+        function done() { show("copied"); }
+        function fallback() {
+          box.focus();
+          box.select();
+          box.setSelectionRange(0, answer.length);
+          try { if (document.execCommand("copy")) { done(); } } catch (e) { /* выделено — можно скопировать руками */ }
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(answer).then(done, fallback);
+        } else {
+          fallback();
+        }
+      });
+    } else if (error === "access_denied") {
+      show("denied-view");
+    } else if (error) {
+      document.getElementById("error-name").textContent = error.slice(0, 80);
+      show("error-view");
+    } else {
+      show("empty-view");
+    }
+  })();
+</script>
+</body>
+</html>
